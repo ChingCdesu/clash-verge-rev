@@ -28,7 +28,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 预发布 tag (-alpha/-beta/-rc) 允许从非 main 分支(如 dev)发布；稳定版仍要求 main。
       - name: Check if tag is from main branch
+        if: ${{ !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') && !contains(github.ref_name, '-rc') }}
         run: |
           TAG_REF="${GITHUB_REF##*/}"
           echo "Checking if tag $TAG_REF is from main branch..."
