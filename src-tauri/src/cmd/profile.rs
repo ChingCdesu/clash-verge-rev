@@ -1,6 +1,7 @@
 use super::CmdResult;
 use super::StringifyErr as _;
 use crate::cmd::validate::{ValidationNoticeTarget, handle_validation_notice};
+use crate::config::profiles;
 use crate::utils::window_manager::WindowManager;
 use crate::{
     config::{
@@ -23,6 +24,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 static CURRENT_SWITCHING_PROFILE: AtomicBool = AtomicBool::new(false);
+
+fn profile_import_error(err: &anyhow::Error) -> std::string::String {
+    if let Some(cause) = err.chain().find(|cause| cause.to_string().contains("TLS 1.0/1.1")) {
+        return cause.to_string();
+    }
+
+    format!("导入订阅失败: {err:#}")
+}
 
 #[tauri::command]
 pub async fn get_profiles() -> CmdResult<SharedDraft<IProfiles>> {
@@ -70,7 +79,7 @@ pub async fn import_profile(url: std::string::String, option: Option<PrfOption>)
         }
         Err(e) => {
             logging!(error, Type::Cmd, "[导入订阅] 下载失败: {}", e);
-            return Err(format!("导入订阅失败: {}", e).into());
+            return Err(profile_import_error(&e).into());
         }
     };
 
@@ -204,15 +213,8 @@ async fn restore_previous_profile(prev_profile: &String) -> CmdResult<()> {
 
 async fn handle_success(current_value: Option<&String>) -> CmdResult<ValidationOutcome> {
     Config::profiles().await.apply();
-    handle::Handle::refresh_clash();
-
-    if let Err(e) = Tray::global().update_tooltip().await {
-        logging!(warn, Type::Cmd, "Warning: 异步更新托盘提示失败: {e}");
-    }
-
-    if let Err(e) = Tray::global().update_menu().await {
-        logging!(warn, Type::Cmd, "Warning: 异步更新托盘菜单失败: {e}");
-    }
+    // Runtime refresh and tray rebuilding happen after saved node selections are restored.
+    profiles::activate_selected_nodes().stringify_err()?;
 
     if let Err(e) = profiles_save_file_safe().await {
         logging!(warn, Type::Cmd, "Warning: 异步保存配置文件失败: {e}");
